@@ -21,7 +21,7 @@ def weights_init(input):
         input.bias.data.fill_(0)
 
 # Define some parameters
-nz = 100 # z dimension
+nz = 1000 # z dimension
 ngf = 64 # number of generator features
 ngpu = 1 # number of gpus
 nc = 1 # number of image channels
