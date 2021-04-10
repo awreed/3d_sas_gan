@@ -5,10 +5,11 @@ import torchvision
 import random
 import json
 
-from models.DCGAN_G import DCGAN_G_nobn
-from models.DCGAN_D import DCGAN_D_nobn
-from load_data import get_data_from_pt, gradient_penalty
+from models.DCGAN_G import DCGAN_G_3D
+from models.DCGAN_D import DCGAN_D_3D
+from load_data import get_data_from_pt, gradient_penalty, get_grid, get_slices
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 def weights_init(input):
@@ -26,8 +27,8 @@ ngpu = 1 # number of gpus
 nc = 1 # number of image channels
 ndf = 64 # number of discriminator features
 batch_size = 1
-lrD = .000005 # learning rate of the disc
-lrG = .000005 # learning rate of the generator
+lrD = 5e-6 # learning rate of the disc
+lrG = 5e-6 # learning rate of the generator
 beta1 = 0.5 # adam param
 nepoch = 10000000
 Diters = 1 # how many times to train the discimrinator for each gerantor itearion
@@ -40,15 +41,15 @@ save_dir = 'results/'
 device = torch.device("cuda:0" if torch.cuda.is_available()  else "cpu")
 
 # Define the generator
-netG = DCGAN_G_nobn(nz, ngf, nc, ngpu).to(device)
+netG = DCGAN_G_3D(nz, ngf, nc, ngpu).to(device)
 netG.apply(weights_init)
 
 # Define the discriminator
-netD = DCGAN_D_nobn(nc, ndf, ngpu).to(device)
+netD = DCGAN_D_3D(nc, ndf, ngpu).to(device)
 netD.apply(weights_init)
 
 # some constants
-fixed_noise = torch.FloatTensor(torch.randn(batch_size, nz, 1, 1)).to(device)
+fixed_noise = torch.FloatTensor(torch.randn(batch_size, nz, 1, 1, 1)).to(device)
 one = torch.FloatTensor([1]).to(device)
 mone = one * -1
 
@@ -58,26 +59,22 @@ optimizerG = torch.optim.Adam(netG.parameters(), lr=lrG, betas=(beta1, 0.999))
 
 # Load in the single data sample
 data = get_data_from_pt('complex_test.pt')
-data_2d_slice = data[..., 50, :].squeeze().numpy()
-#plt.imshow(data_2d_slice)
+grid = get_grid(get_slices(data.squeeze().numpy(), axis=1), cols=10)
+plt.imsave(save_dir + 'gt.png', grid)
+#plt.imshow(grid)
 #plt.show()
-plt.imsave(save_dir + 'gt.png', data_2d_slice)
 
 # Here is the data tensor we will feed to the discriminator [B, C, H, W] -> [1, 1, 100, 100]
-real_data = torch.from_numpy(data_2d_slice)[None, None, ...].to(device)
+real_data = data.to(device)
 real_data = real_data.float() # weight type is float
+real_data = 2*(real_data - real_data.min())/(real_data.max() - real_data.min()) - 1
+
 gen_iters = 0
 print("Starting Training Loop...")
 for epoch in range(nepoch):
 
     for p in netD.parameters():  # reset requires_grad
         p.requires_grad = True  # they are set to False below in netG update
-
-    # train the discriminator Diters times
-    #if gen_iters < 25 or gen_iters % 500 == 0:
-    #    Diters = 100
-    #else:
-    #    Diters = Diters
 
     j = 0
     while j < Diters:
@@ -99,6 +96,7 @@ for epoch in range(nepoch):
         with torch.no_grad():  # totally freeze netG
             noise = torch.randn(batch_size, nz, 1, 1).to(device)
 
+        # change 'fixed_noise' to 'noise' when ready to run on a dataset
         fake = netG(fixed_noise)
         print(fake.min(), fake.max())
         errD_fake = netD(fake.detach())
@@ -122,7 +120,8 @@ for epoch in range(nepoch):
     if gen_iters % 10 == 0:
         fake = netG(fixed_noise)
         fake = fake.squeeze().detach().cpu().numpy()
-        plt.imsave(save_dir + 'est' + str(epoch) + '.png', fake)
+        fake_grid = get_grid(get_slices(fake, axis=1), cols=10)
+        plt.imsave(save_dir + 'est' + str(epoch) + '.png', fake_grid)
 
     #torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % (opt.models, epoch))
     #torch.save(netD.state_dict(), '%s/netD_epoch_%d.pth' % (opt.models, epoch))
